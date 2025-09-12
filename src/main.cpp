@@ -47,10 +47,11 @@ void loop() {
   distanceCm = duration * 0.0343 / 2;
 
   // Displays the distance on the Serial Monitor
+  lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Distance: ");
   lcd.print(distanceCm);
-  lcd.print(" cm");
+  lcd.print("cm");
 
   delay(1000); // Small delay to allow for stable readings
 }

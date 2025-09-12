@@ -1,50 +1,16 @@
-# Neovim with PlatformIO
+# Firmware Coding for USC-L1SR04D150 IoT Station
 
 ![screenshot](https://github.com/ironlungx/icons/blob/main/screenshot.png?raw=true)
 
 ## Overview
 
-Since getting LSP to work is **very** finicky this guide provides **two methods** to get LSP working. Try both of them and use the one with the least errors
-
-* **Method 1**: Using `clangd`
-* **Method 2**: Using `ccls` 
-
-> ⭐ If you find this project useful, consider starring the repo to help it gain visibility!
+This firmware is for my capstone project and is my first project made with []() using [PlatformIO CLI](https://docs.platformio.org/en/latest/core/installation/index.html) and [Neovim (Lazyvim)](https://www.lazyvim.org/installation), but using [VSCode](https://code.visualstudio.com/) and [PlatformIO Extension](https://marketplace.visualstudio.com/items?itemName=platformio.platformio-ide) works too.
 
 ---
 
-## Common Prerequisites
+## Setup
 
-1. Clone the repo (if using Method 1):
-
-```sh
-git clone https://github.com/ironlungx/nvim-pio PROJECT_NAME
-cd PROJECT_NAME
-```
-
-2. Set up your PlatformIO project:
-
-* Edit `platformio.ini` to set your `board` and `platform`
-* Run:
-
-```sh
-pio init --ide vim
-```
-
----
-
-## Method 1: Using `clangd`
-
-### 1. Install `clangd`
-
-Use your system package manager or install via [Mason](https://github.com/williamboman/mason.nvim)
-
-### 2. Generate `compile_commands.json`
-```sh
-python3 conv.py
-```
-
-### 3. Configure Neovim LSP
+1. Configure Neovim LSP
 
 Install the following Neovim plugins (using `lazy.nvim` or your preferred manager):
 
@@ -76,64 +42,30 @@ return {
   },
 }
 ```
-
-### 4. Run and Verify
-
-* Open Neovim inside your project folder.
-* LSP should now work. If not, feel free to open an issue.
-
----
-
-## Method 2: Using `ccls` (Alternative)
-
-### 1. Install `ccls`
-
-Follow the install guide on [ccls GitHub](https://github.com/MaskRay/ccls/wiki/Build)
-
-### 2. Initialize Your Project
-
-Run:
+2. Configure PlatformIO
 
 ```sh
+cd usc-l1sr04d154
 pio init --ide vim
-pio run -t compiledb
 ```
 
-### 3. Configure Neovim to Use `ccls`
+## Developing
 
-In your Neovim config:
+Make sure ESP32 is connected to the computer first before uploading using command `lsusb`. You can add libraries to the project by modifying `platformio.ini`.
 
-```lua
-vim.lsp.config("ccls", {
-  init_options = {
-    diagnostics = {
-      onChange = 100,
-    },
-  },
-})
+1. Link up Neovim LSP
 
-vim.lsp.enable("ccls")
-
--- Optional: Fallback to clangd if .ccls doesn't exist
-if vim.fn.filereadable(vim.uv.cwd() .. "/.ccls") == 0 then
-  vim.lsp.enable("clangd")
-end
-```
-
-### 4. Keep It Up to Date
-
-Every time you modify project libraries or config:
+Make sure run the command too when every time you modify `platformio.ini`.
 
 ```sh
-pio init --ide vim && pio run -t compiledb
+python3 conv.py
 ```
 
----
+2. Compile, upload and monitor
 
-## Switching Between `clangd` and `ccls`
-
-* Use **clangd** if you're looking for easier setup and performance.
-* Use **ccls** if you prefer `.ccls`-based workflows or have specific compatibility needs.
+```sh
+pio run -t upload -t monitor
+```
 
 ---
 
