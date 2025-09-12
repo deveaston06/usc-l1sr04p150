@@ -1,10 +1,11 @@
 # Firmware Coding for USC-L1SR04D150 IoT Station
 
-![screenshot](https://github.com/ironlungx/icons/blob/main/screenshot.png?raw=true)
+![IoT Node Front](https://github.com/deveaston06/elprog-blog-astro/blob/main/public/posts/my-next-billion-idea-app/iot-node-front.png?raw=true)
+![IoT Node Back](https://github.com/deveaston06/elprog-blog-astro/blob/main/public/posts/my-next-billion-idea-app/iot-node-back.png?raw=true)
 
 ## Overview
 
-This firmware is for my capstone project and is my first project made with []() using [PlatformIO CLI](https://docs.platformio.org/en/latest/core/installation/index.html) and [Neovim (Lazyvim)](https://www.lazyvim.org/installation), but using [VSCode](https://code.visualstudio.com/) and [PlatformIO Extension](https://marketplace.visualstudio.com/items?itemName=platformio.platformio-ide) works too.
+This firmware is for my capstone project and is my first project made with [ironlongx/nvim-pio template](https://github.com/ironlungx/nvim-pio/) for [PlatformIO CLI](https://docs.platformio.org/en/latest/core/installation/index.html) and [Neovim (Lazyvim)](https://www.lazyvim.org/installation), but you can also use [VSCode](https://code.visualstudio.com/) and [PlatformIO Extension](https://marketplace.visualstudio.com/items?itemName=platformio.platformio-ide) which works too.
 
 ---
 
