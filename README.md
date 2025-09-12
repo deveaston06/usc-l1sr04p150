@@ -1,4 +1,4 @@
-# Firmware Coding for USC-L1SR04D150 IoT Station
+# Firmware Coding for USC-L1SR04P150 IoT Station
 
 ![IoT Node Front](https://github.com/deveaston06/elprog-blog-astro/blob/main/public/posts/my-next-billion-idea-app/iot-node-front.png?raw=true)
 ![IoT Node Back](https://github.com/deveaston06/elprog-blog-astro/blob/main/public/posts/my-next-billion-idea-app/iot-node-back.png?raw=true)
