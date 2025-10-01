@@ -1,5 +1,139 @@
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
+#include <NimBLEDevice.h>
+
+// Replace with your printer MAC (or leave blank to connect to first found)
+static const char *PRINTER_MAC = "58:8C:81:72:AB:0A";
+
+NimBLERemoteService *pPrinterService = nullptr;
+NimBLEClient *pClient = nullptr;
+// globals
+NimBLERemoteCharacteristic *pWriteChar = nullptr;
+NimBLERemoteCharacteristic *pNotifyChar = nullptr;
+volatile bool ackReceived = false;
+std::vector<uint8_t> lastAck; // stores last notification bytes
+
+// Notification callback
+void notifyCallback(NimBLERemoteCharacteristic *chr, uint8_t *data, size_t len,
+                    bool isNotify) {
+  // copy ack
+  lastAck.assign(data, data + len);
+  ackReceived = true;
+
+  Serial.print("Notification [");
+  Serial.print(chr->getUUID().toString().c_str());
+  Serial.print("] : ");
+  for (size_t i = 0; i < len; ++i)
+    Serial.printf("%02X ", data[i]);
+  Serial.println();
+}
+
+// Explicitly write CCC descriptor (0x2902) with Write Request (response
+// expected)
+bool enableNotificationsExplicit(NimBLERemoteCharacteristic *notifyChr,
+                                 uint32_t timeoutMs = 2000) {
+  if (!notifyChr)
+    return false;
+
+  NimBLERemoteDescriptor *ccc =
+      notifyChr->getDescriptor(NimBLEUUID((uint16_t)0x2902));
+  if (!ccc) {
+    Serial.println("CCC descriptor (0x2902) not found.");
+    return false;
+  }
+
+  // value 0x0001 -> enable notifications (little endian)
+  uint8_t val[2] = {0x01, 0x00};
+
+  Serial.println(
+      "Writing CCC descriptor to enable notifications (Write Request) ...");
+  bool ok = ccc->writeValue(val, 2, true); // true => request/with response
+
+  if (!ok) {
+    Serial.println("Descriptor write failed (sync call returned false).");
+    return false;
+  }
+
+  // Optionally wait briefly for the server response - NimBLE handles write
+  // response sync, but we could check subscription by subscribing via NimBLE
+  // API too:
+  bool subOk = notifyChr->subscribe(
+      true, notifyCallback); // subscribe wrapper sets CCC and callback
+  if (!subOk) {
+    Serial.println(
+        "subscribe() failed (but descriptor write may have succeeded).");
+  } else {
+    Serial.println("subscribe() succeeded.");
+  }
+  return true;
+}
+
+// send a single chunk and wait for an ACK notification (optional)
+bool sendChunkWaitAck(const uint8_t *data, size_t len,
+                      uint32_t timeoutMs = 1000) {
+  if (!pWriteChar) {
+    Serial.println("Write characteristic missing!");
+    return false;
+  }
+  // clear ack flag
+  ackReceived = false;
+  lastAck.clear();
+
+  // writeWithoutResponse (false -> no response)
+  bool wrote = pWriteChar->writeValue((uint8_t *)data, len, false);
+  if (!wrote) {
+    Serial.println("writeValue (no-response) returned false.");
+    return false;
+  }
+  // Wait for ackReceived to become true (from notifyCallback)
+  uint32_t start = millis();
+  while (!ackReceived && (millis() - start) < timeoutMs) {
+    delay(5);
+  }
+  if (!ackReceived) {
+    Serial.println("ACK timeout");
+    return false;
+  }
+  // Optionally inspect lastAck bytes for success code
+  Serial.print("ACK bytes: ");
+  for (auto &b : lastAck)
+    Serial.printf("%02X ", b);
+  Serial.println();
+  return true;
+}
+
+// send big buffer chunked according to MTU - 3 (safe)
+bool sendLargeBufferWithAck(const uint8_t *buf, size_t buflen) {
+  // compute chunk size from MTU; NimBLE client has getMTU()
+  uint16_t mtu = pClient->getMTU(); // negotiated MTU
+  size_t chunk = (mtu > 3) ? (mtu - 3) : 20;
+  Serial.printf("Using chunk size: %u (MTU %u)\n", (unsigned)chunk,
+                (unsigned)mtu);
+
+  for (size_t offset = 0; offset < buflen; offset += chunk) {
+    size_t thisLen = std::min(chunk, buflen - offset);
+    if (!sendChunkWaitAck(buf + offset, thisLen, 1000)) {
+      Serial.printf("Chunk at offset %u failed\n", (unsigned)offset);
+      return false;
+    }
+    delay(5); // small spacing — tweak if needed
+  }
+  return true;
+}
+
+// Scan callback
+class PrinterAdvertisedDeviceCallbacks : public NimBLEScanCallbacks {
+  void onResult(NimBLEAdvertisedDevice *advertisedDevice) {
+    Serial.print("Found device: ");
+    Serial.println(advertisedDevice->toString().c_str());
+
+    if (PRINTER_MAC[0] != '\0' &&
+        advertisedDevice->getAddress().toString() == std::string(PRINTER_MAC)) {
+      Serial.println("Found target printer, stopping scan...");
+      NimBLEDevice::getScan()->stop();
+    }
+  }
+};
 
 // Defines pin numbers
 const int trigPin = 12; // Connects to the Trig pin of the HC-SR04P
@@ -19,12 +153,71 @@ LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
 
 void setup() {
   Serial.begin(115200);
+  Serial.println("Starting BLE sniffer...");
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
   pinMode(echoPin, INPUT);  // Sets the echoPin as an Input
-                            // initialize LCD
   lcd.init();
-  // turn on LCD backlight
   lcd.backlight();
+
+  NimBLEDevice::init("ESP32-BLE-Sniffer");
+
+  // Scan
+  NimBLEScan *pScan = NimBLEDevice::getScan();
+  pScan->setScanCallbacks(new PrinterAdvertisedDeviceCallbacks());
+  pScan->setInterval(45);
+  pScan->setWindow(15);
+  pScan->setActiveScan(true);
+  pScan->start(5, false);
+
+  // Connect
+  NimBLEAddress addr(std::string(PRINTER_MAC), BLE_ADDR_PUBLIC);
+  pClient = NimBLEDevice::createClient();
+
+  Serial.print("Connecting to printer: ");
+  Serial.println(addr.toString().c_str());
+
+  if (!pClient->connect(addr)) {
+    Serial.println("Failed to connect.");
+    return;
+  }
+  Serial.println("Connected!");
+
+  // Negotiate MTU
+  uint16_t mtu = pClient->getMTU();
+  Serial.printf("Negotiated MTU: %u\n", mtu);
+
+  // Find printer service (UUID 0xABF0)
+  pPrinterService = pClient->getService("ABF0");
+  if (!pPrinterService) {
+    Serial.println("Printer service (0xABF0) not found!");
+    return;
+  }
+  Serial.println("Printer service found.");
+
+  // Get write characteristic (ABF1)
+  pWriteChar = pPrinterService->getCharacteristic("ABF1");
+  if (!pWriteChar) {
+    Serial.println("Write characteristic ABF1 not found!");
+    return;
+  }
+  Serial.println("Write characteristic ABF1 found.");
+
+  // Get notify characteristic (ABF2)
+  pNotifyChar = pPrinterService->getCharacteristic("ABF2");
+  if (!pNotifyChar) {
+    Serial.println("Notify characteristic ABF2 not found!");
+    return;
+  }
+  Serial.println("Notify characteristic ABF2 found.");
+
+  // Subscribe to ABF2 notifications
+  if (pNotifyChar->canNotify()) {
+    if (pNotifyChar->subscribe(true, notifyCallback)) {
+      Serial.println("Subscribed to ABF2 notifications.");
+    } else {
+      Serial.println("Subscribe to ABF2 failed.");
+    }
+  }
 }
 
 void loop() {
@@ -47,11 +240,18 @@ void loop() {
   distanceCm = duration * 0.0343 / 2;
 
   // Displays the distance on the Serial Monitor
-  lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Distance: ");
+  lcd.print("Distance:       ");
+  lcd.setCursor(10, 0);
   lcd.print(distanceCm);
   lcd.print("cm");
+
+  // Example payload from Wireshark (QR command)
+  uint8_t qr1[] = {0x66, 0x06, 0x00, 0x10, 0x00, 0x84};
+
+  if (pWriteChar) {
+    sendChunkWaitAck(qr1, sizeof(qr1));
+  }
 
   delay(1000); // Small delay to allow for stable readings
 }

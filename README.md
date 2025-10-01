@@ -43,22 +43,23 @@ return {
   },
 }
 ```
-2. Configure PlatformIO
 
+2. Add user to dialout group and **restart** system to access /dev/ttyUSB0
 ```sh
-cd usc-l1sr04d154
-pio init --ide vim
+sudo usermod -a -G dialout $USER
 ```
 
 ## Developing
 
 Make sure ESP32 is connected to the computer first before uploading using command `lsusb`. You can add libraries to the project by modifying `platformio.ini`.
 
-1. Link up Neovim LSP
+1. Install Libraries and Link up Neovim LSP
 
 Make sure run the command too when every time you modify `platformio.ini`.
 
 ```sh
+cd <PROJECT_FOLDER>
+pio init --ide vim
 python3 conv.py
 ```
 
