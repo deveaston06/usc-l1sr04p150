@@ -69,6 +69,15 @@ python3 conv.py
 pio run -t upload -t monitor
 ```
 
+## Components
+1. HX711 with Load Cell 1kg (5V)
+2. I2C LCD1602 (5V)
+3. SR04P (5V)
+4. MakeID L1 Printer (USB C)
+
+## Wiring
+%% TODO: add wiring diagram%%
+
 ---
 
 ## Related Projects
