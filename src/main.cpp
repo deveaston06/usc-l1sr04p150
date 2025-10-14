@@ -13,6 +13,16 @@ NimBLERemoteCharacteristic *pWriteChar = nullptr;
 NimBLERemoteCharacteristic *pNotifyChar = nullptr;
 volatile bool ackReceived = false;
 std::vector<uint8_t> lastAck; // stores last notification bytes
+int currentFrame = 0;
+bool printingInProgress = false;
+
+const uint8_t frame1[] = { 0x66, 0x35, 0x00, 0x1b, 0x2f, 0x03, 0x01, 0x00, 0x01, 0x00, 0x01, 0x33, 0x01, 0x55, 0x00, 0x03, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3d, 0x03, 0x00, 0xff, 0x3f, 0xff, 0x28, 0x00, 0x00, 0x35, 0x2e, 0x00, 0x00, 0x38, 0xf3, 0x08, 0x03, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x89, 0x2c, 0x00, 0x11, 0x00, 0x00, 0x63 };
+
+const uint8_t frame2[] = { 0x66, 0x2f, 0x00, 0x1b, 0x2f, 0x03, 0x01, 0x00, 0x01, 0x00, 0x01, 0x33, 0x01, 0x55, 0x00, 0x02, 0x00, 0x02, 0x00, 0x38, 0x00, 0x00, 0x00, 0x80, 0x00, 0x02, 0x03, 0x00, 0x00, 0x38, 0x00, 0xc3, 0x00, 0x03, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0xc5, 0x2c, 0x00, 0x11, 0x00, 0x00, 0xb1 };
+
+const uint8_t frame3[] = { 0x66, 0x2f, 0x00, 0x1b, 0x2f, 0x03, 0x01, 0x00, 0x01, 0x00, 0x01, 0x33, 0x01, 0x55, 0x00, 0x01, 0x00, 0x02, 0x00, 0x38, 0x00, 0x00, 0x00, 0x80, 0x00, 0x02, 0x03, 0x00, 0x00, 0x38, 0x00, 0xc3, 0x00, 0x03, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0xc5, 0x2c, 0x00, 0x11, 0x00, 0x00, 0xb2 };
+
+const uint8_t frame4[] = { 0x66, 0x44, 0x00, 0x1b, 0x2f, 0x03, 0x01, 0x00, 0x01, 0x00, 0x01, 0x33, 0x01, 0x34, 0x00, 0x00, 0x00, 0x02, 0x00, 0x38, 0x00, 0x00, 0x00, 0x80, 0x00, 0x02, 0x03, 0x00, 0x00, 0x38, 0x00, 0xc3, 0x00, 0x03, 0x00, 0x00, 0x20, 0x00, 0x00, 0x08, 0x2f, 0x00, 0xff, 0x3f, 0xff, 0x28, 0x00, 0x00, 0x35, 0x2c, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0xaa };
 
 // Notification callback
 void notifyCallback(NimBLERemoteCharacteristic *chr, uint8_t *data, size_t len,
@@ -27,6 +37,27 @@ void notifyCallback(NimBLERemoteCharacteristic *chr, uint8_t *data, size_t len,
   for (size_t i = 0; i < len; ++i)
     Serial.printf("%02X ", data[i]);
   Serial.println();
+
+	// When printing, use each notification as a signal to send the next frame
+  if (printingInProgress && chr == pNotifyChar) {
+    delay(50);  // slight delay to allow internal buffer clear
+    currentFrame++;
+    const uint8_t *nextFrame = nullptr;
+    size_t lenNext = 0;
+
+    switch (currentFrame) {
+      case 1: nextFrame = frame2; lenNext = sizeof(frame2); break;
+      case 2: nextFrame = frame3; lenNext = sizeof(frame3); break;
+      case 3: nextFrame = frame4; lenNext = sizeof(frame4); break;
+      default:
+        Serial.println("All frames sent. Printing should complete.");
+        printingInProgress = false;
+        return;
+    }
+
+    Serial.printf("Sending frame %d...\n", currentFrame + 1);
+    pWriteChar->writeValue(nextFrame, lenNext, false);
+  }
 }
 
 // Explicitly write CCC descriptor (0x2902) with Write Request (response
@@ -199,6 +230,18 @@ void beginBLESniffer() {
   }
 }
 
+
+void startPrintJob() {
+  if (!pWriteChar) {
+    Serial.println("No write characteristic available!");
+    return;
+  }
+  currentFrame = 0;
+  printingInProgress = true;
+  Serial.println("Starting print job (frame 1)...");
+  pWriteChar->writeValue(frame1, sizeof(frame1), false);
+}
+
 // Defines pin numbers
 const int trigPin = 12; // Connects to the Trig pin of the HC-SR04P
 const int echoPin = 13; // Connects to the Echo pin of the HC-SR04P
@@ -231,11 +274,19 @@ void setup() {
   lcd.init();
   lcd.backlight();
 
-  // beginBLESniffer();
-  scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
-  scale.set_scale(CALIBRATION_FACTOR); // this value is obtained by calibrating
+  beginBLESniffer();
+	Serial.println("Attempting to get print characteristic (0x002a)...");
+	BLERemoteCharacteristic* printChar = pPrinterService->getCharacteristic(BLEUUID((uint16_t)0xabf1));
+	if (printChar && printChar->canWriteNoResponse()) {
+		Serial.println("Found 0x002a characteristic, sending replay frames...");
+		startPrintJob();
+	} else {
+		Serial.println("Characteristic 0x002a not found or not writable.");
+	}
+  // scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+  // scale.set_scale(CALIBRATION_FACTOR); // this value is obtained by calibrating
                                        // the scale with known weights
-  scale.tare();                        // reset the scale to 0
+  // scale.tare();                        // reset the scale to 0
 }
 
 void loop() {
@@ -271,21 +322,21 @@ void loop() {
   //   sendChunkWaitAck(qr1, sizeof(qr1));
   // }
 
-  if (scale.wait_ready_timeout(200)) {
-    reading = round(scale.get_units());
-    Serial.print("Weight: ");
-    Serial.println(reading);
-    if (reading != lastReading) {
-      lcd.setCursor(0, 1);
-      lcd.print("Weight:         ");
-      lcd.setCursor(8, 1);
-      lcd.print(reading);
-      lcd.print(" g");
-    }
-    lastReading = reading;
-  } else {
-    Serial.println("HX711 not found.");
-  }
-
+  // if (scale.wait_ready_timeout(200)) {
+  //   reading = round(scale.get_units());
+  //   Serial.print("Weight: ");
+  //   Serial.println(reading);
+  //   if (reading != lastReading) {
+  //     lcd.setCursor(0, 1);
+  //     lcd.print("Weight:         ");
+  //     lcd.setCursor(8, 1);
+  //     lcd.print(reading);
+  //     lcd.print(" g");
+  //   }
+  //   lastReading = reading;
+  // } else {
+  //   Serial.println("HX711 not found.");
+  // }
+  //
   delay(1000); // Small delay to allow for stable readings
 }
